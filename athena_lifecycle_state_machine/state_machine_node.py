@@ -2,9 +2,7 @@ import rclpy
 from rclpy.node import Node
 from enum import Enum
 from std_msgs.msg import String, Bool
-from athena_lifecycle_state_machine.athena_lifecycle_state_machine.led_controller import (
-    LEDController,
-)
+from athena_lifecycle_state_machine.led_controller import LEDController
 
 
 class SystemState(Enum):

@@ -1,6 +1,11 @@
+import time
 import board
 import adafruit_pixelbuf
 from adafruit_raspberry_pi5_neopixel_write import neopixel_write
+
+
+NEOPIXEL = board.D18
+NUM_PIXELS = 8
 
 
 class Pi5Pixelbuf(adafruit_pixelbuf.PixelBuf):
@@ -26,16 +31,19 @@ class LEDController:
         self.current_mode = mode
 
         if mode == "INIT":
-            self.pixels.fill((128, 255, 0, 00))  # orange
+            self.pixels.fill((0, 0, 0, 255))  # white
+
+        elif mode == "READY":
+            self.pixels.fill((128, 255, 0, 0))  # orange
 
         elif mode == "MANUAL":
-            self.pixels.fill((0, 0, 255, 0))  # Blau
+            self.pixels.fill((0, 0, 255, 0))  # blue
 
         elif mode == "AUTONOMOUS":
-            self.pixels.fill((0, 255, 0, 0))  # Grün
+            self.pixels.fill((0, 255, 0, 0))  # green
 
         elif mode == "EMERGENCY":
-            self.pixels.fill((255, 0, 0, 0))  # Rot
+            self.pixels.fill((255, 0, 0, 0))  # red
 
     def blink_red(self):
         self.blink_state = not self.blink_state
