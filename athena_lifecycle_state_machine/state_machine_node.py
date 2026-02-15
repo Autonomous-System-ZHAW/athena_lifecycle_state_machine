@@ -13,9 +13,22 @@ from vesc_msgs.msg import VescStateStamped
 class SystemState(Enum):
     INIT = 0
     READY = 1
-    MANUAL = 2
-    AUTONOMOUS = 3
-    EMERGENCY = 4
+    MISSION_SELECT = 2
+    MANUAL = 3
+    AUTONOMOUS = 4
+    EMERGENCY = 5
+
+
+class Missions(Enum):
+    FTG = 0  # follow the gap algo
+    GP = 1  # Global planner
+    MPC = 2  # Using the MPC to drive
+
+    def next(self):
+        return Missions((self.value + 1) % len(Missions))
+
+    def previous(self):
+        return Missions((self.value - 1) % len(Missions))
 
 
 class StateMachineNode(Node):
@@ -48,14 +61,21 @@ class StateMachineNode(Node):
             self.get_logger().info("Waiting for follow_the_gap lifecycle service...")
 
         # --- Mode / Emergency Subscriptions ---
-        self.create_subscription(Bool, "/autonomy_toggle", self.autonomy_callback, 10)
         self.create_subscription(Bool, "/emergency_stop", self.emergency_callback, 10)
+        self.create_subscription(Bool, "/autonomy_toggle", self.autonomy_callback, 10)
+        self.create_subscription(Bool, "/mission_toggle", self.mission_callback, 10)
+        self.create_subscription(Bool, "/manuel_toggle", self.manual_callback, 10)
+        self.create_subscription(Bool, "/confirm_toggle", self.confirm_callback, 10)
+        self.create_subscription(Bool, "/up_toggle", self.up_selection_callback, 10)
+        self.create_subscription(Bool, "/down_toggle", self.down_selection_callback, 10)
 
         # --- LED ---
         self.led = LEDController()
 
         # --- Initial State ---
         self.state = SystemState.INIT
+        self.mission = None
+
         self.get_logger().info("Athena State Machine started.")
 
         # --- Timer ---
@@ -63,6 +83,7 @@ class StateMachineNode(Node):
 
         # --- Publisher ---
         self.mode_pub = self.create_publisher(String, "/system_mode", 10)
+        self.mission_pub = self.create_publisher(String, "/mission_mod", 10)
 
     def configure_lifecycle_nodes(self):
         self.get_logger().info("Configuring FollowTheGap...")
@@ -101,11 +122,43 @@ class StateMachineNode(Node):
             self.get_logger().warn("Autonomy ignored: system in EMERGENCY")
             return
 
-        if self.state in [SystemState.READY, SystemState.MANUAL]:
+        if self.state == SystemState.READY:
+            if self.mission is None:
+                self.get_logger().error("No mission selected!")
+                return
+
             self.transition_to(SystemState.AUTONOMOUS)
 
         elif self.state == SystemState.AUTONOMOUS:
+            self.transition_to(SystemState.READY)
+
+    def manual_callback(self, msg):
+        if not msg.data:
+            return
+
+        if self.state == SystemState.EMERGENCY:
+            self.get_logger().warn("Autonomy ignored: system in EMERGENCY")
+            return
+
+        if self.state == SystemState.READY:
             self.transition_to(SystemState.MANUAL)
+
+        elif self.state == SystemState.MANUAL:
+            self.transition_to(SystemState.READY)
+
+    def mission_callback(self, msg):
+        if not msg.data:
+            return
+
+        if self.state == SystemState.EMERGENCY:
+            self.get_logger().warn("Autonomy ignored: system in EMERGENCY")
+            return
+
+        if self.state == SystemState.READY:
+            self.transition_to(SystemState.MISSION_SELECT)
+
+        elif self.state == SystemState.MISSION_SELECT:
+            self.transition_to(SystemState.READY)
 
     def emergency_callback(self, msg):
         if not msg.data:
@@ -128,7 +181,7 @@ class StateMachineNode(Node):
             return
 
         # Runtime Health Check
-        if self.state in [SystemState.MANUAL, SystemState.AUTONOMOUS]:
+        if self.state not in (SystemState.INIT, SystemState.EMERGENCY):
             if not self.check_health(now):
                 self.transition_to(SystemState.EMERGENCY)
                 return
@@ -164,26 +217,90 @@ class StateMachineNode(Node):
 
         old_state = self.state
 
-        # --- Only FTG Lifecycle ---
         if new_state == SystemState.AUTONOMOUS:
-            self.change_lifecycle_state(self.ftg_client, Transition.TRANSITION_ACTIVATE)
+            if self.mission == Missions.FTG:
+                self.change_lifecycle_state(
+                    self.ftg_client, Transition.TRANSITION_ACTIVATE
+                )
 
-        elif new_state in [SystemState.MANUAL, SystemState.EMERGENCY]:
+            elif self.mission == Missions.GP:
+                # ToDo
+                self.get_logger().warn("GP not implemented yet")
+
+            elif self.mission == Missions.MPC:
+                # ToDo
+                self.get_logger().warn("MPC not implemented yet")
+
+        elif new_state == SystemState.EMERGENCY:
             self.change_lifecycle_state(
                 self.ftg_client, Transition.TRANSITION_DEACTIVATE
             )
 
-        self.state = new_state
+        elif new_state == SystemState.MANUAL:
+            # ToDo
+            self.get_logger().warn("Remot drive control node not implemented yet")
+
+        elif new_state == SystemState.MISSION_SELECT:
+            if self.mission is None:
+                self.mission = Missions.FTG
 
         self.get_logger().info(f"{old_state.name} → {new_state.name}")
 
-        self.led.set_mode(new_state.name)
-        self.publish_mode(new_state.name)
+        self.state = new_state
 
-    def publish_mode(self, mode_str):
+        self.led.set_mode(new_state.name)
+        self.publish_system_mod(new_state.name)
+
+        if self.mission is not None:
+            self.publish_mission_mode(self.mission.name)
+
+    def confirm_callback(self, msg):
+        if not msg.data:
+            return
+
+        if self.state != SystemState.MISSION_SELECT:
+            return
+
+        if self.mission is None:
+            self.get_logger().warn("No mission selected")
+            return
+
+        self.transition_to(SystemState.READY)
+
+    def up_selection_callback(self, msg):
+        if not msg.data:
+            return
+
+        if self.state != SystemState.MISSION_SELECT:
+            return
+
+        if self.mission is None:
+            self.mission = Missions.FTG
+        else:
+            self.mission = self.mission.next()
+
+        self.get_logger().info(f"Mission: {self.mission.name}")
+
+    def down_selection_callback(self, msg):
+        if not msg.data or self.state != SystemState.MISSION_SELECT:
+            return
+
+        if self.mission is None:
+            self.mission = Missions.FTG
+        else:
+            self.mission = self.mission.previous()
+
+        self.get_logger().info(f"Mission: {self.mission.name}")
+
+    def publish_system_mod(self, mode_str):
         msg = String()
         msg.data = mode_str
         self.mode_pub.publish(msg)
+
+    def publish_mission_mode(self, mode_str):
+        msg = String()
+        msg.data = mode_str
+        self.mission_pub.publish(msg)
 
 
 def main(args=None):

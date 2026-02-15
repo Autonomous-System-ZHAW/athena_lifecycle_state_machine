@@ -36,6 +36,9 @@ class LEDController:
         elif mode == "READY":
             self.pixels.fill((255, 20, 0, 0))  # orange
 
+        elif mode == "MISSION_SELECT":
+            self.pixels.fill((255, 0, 150, 255))  # purple
+
         elif mode == "MANUAL":
             self.pixels.fill((0, 0, 255, 0))  # blue
 
