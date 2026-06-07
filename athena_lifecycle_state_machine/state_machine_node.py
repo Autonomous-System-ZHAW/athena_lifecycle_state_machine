@@ -14,9 +14,10 @@ class SystemState(Enum):
     INIT = 0
     READY = 1
     MISSION_SELECT = 2
-    MANUAL = 3
-    AUTONOMOUS = 4
-    EMERGENCY = 5
+    MANUAL_JOY = 3
+    MANUAL_STEERING_WHEEL = 4
+    AUTONOMOUS = 5
+    EMERGENCY = 6
 
 
 class Missions(Enum):
@@ -52,6 +53,10 @@ class StateMachineNode(Node):
             VescStateStamped, "/sensors/core", self.vesc_callback, 10
         )
 
+        self.create_subscription(
+            Joy, "/steering_wheel_drive", self.steering_wheel_drive_callback, 10
+        )
+
         # --- Lifecycle Client (nur FTG!) ---
         self.ftg_client = self.create_client(
             ChangeState, "/follow_the_gap/change_state"
@@ -64,6 +69,8 @@ class StateMachineNode(Node):
         self.create_subscription(Bool, "/emergency_stop", self.emergency_callback, 10)
         self.create_subscription(Bool, "/autonomy_toggle", self.autonomy_callback, 10)
         self.create_subscription(Bool, "/mission_toggle", self.mission_callback, 10)
+
+        # todo in manuel toggle decide between steering wheel and controller
         self.create_subscription(Bool, "/manuel_toggle", self.manual_callback, 10)
         self.create_subscription(Bool, "/confirm_toggle", self.confirm_callback, 10)
         self.create_subscription(Bool, "/up_toggle", self.up_selection_callback, 10)
@@ -114,12 +121,16 @@ class StateMachineNode(Node):
     def vesc_callback(self, msg):
         self.last_vesc_time = time.time()
 
+    def steering_wheel_drive_callback(self, msg):
+        self.last_steering_wheel_drive_time = time.time()
+
     def autonomy_callback(self, msg):
         if not msg.data:
             return
 
         if self.state == SystemState.EMERGENCY:
             self.get_logger().warn("Autonomy ignored: system in EMERGENCY")
+            # implement a reset from emergency
             return
 
         if self.state == SystemState.READY:
@@ -141,9 +152,9 @@ class StateMachineNode(Node):
             return
 
         if self.state == SystemState.READY:
-            self.transition_to(SystemState.MANUAL)
+            self.transition_to(SystemState.MANUAL_JOY)
 
-        elif self.state == SystemState.MANUAL:
+        elif self.state == SystemState.MANUAL_JOY:
             self.transition_to(SystemState.READY)
 
     def mission_callback(self, msg):
@@ -201,7 +212,7 @@ class StateMachineNode(Node):
             self.get_logger().error("VESC timeout!")
             return False
 
-        if self.state == SystemState.MANUAL:
+        if self.state == SystemState.MANUAL_JOY:
             if (
                 self.last_joy_time is None
                 or now - self.last_joy_time > self.joy_timeout
@@ -236,7 +247,7 @@ class StateMachineNode(Node):
                 self.ftg_client, Transition.TRANSITION_DEACTIVATE
             )
 
-        elif new_state == SystemState.MANUAL:
+        elif new_state == SystemState.MANUAL_JOY:
             # ToDo
             self.get_logger().warn("Remot drive control node not implemented yet")
 
