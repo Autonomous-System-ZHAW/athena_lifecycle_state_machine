@@ -19,7 +19,6 @@ class SystemState(Enum):
     AUTONOMOUS = 5
     EMERGENCY = 6
 
-
 class Missions(Enum):
     FTG = 0  # follow the gap algo
     GP = 1  # Global planner
@@ -133,7 +132,11 @@ class StateMachineNode(Node):
             # implement a reset from emergency
             return
 
-        if self.state == SystemState.READY:
+        if self.state == SystemState.MISSION_SELECT:
+            self.get_logger().warn("Autonomy ignored: currently in MISSION_SELECT")
+            return
+
+        elif self.state == SystemState.READY:
             if self.mission is None:
                 self.get_logger().error("No mission selected!")
                 return
@@ -165,6 +168,10 @@ class StateMachineNode(Node):
             self.get_logger().warn("Autonomy ignored: system in EMERGENCY")
             return
 
+        elif self.state == SystemState.AUTONOMOUS:
+            self.get_logger().warn("Mission change ignored: currently in AUTONOMOUS")
+            return
+        
         if self.state == SystemState.READY:
             self.transition_to(SystemState.MISSION_SELECT)
 
@@ -287,8 +294,10 @@ class StateMachineNode(Node):
 
         if self.mission is None:
             self.mission = Missions.FTG
+            self.publish_mission_mode(self.mission.name)
         else:
             self.mission = self.mission.next()
+            self.publish_mission_mode(self.mission.name)
 
         self.get_logger().info(f"Mission: {self.mission.name}")
 
@@ -298,8 +307,10 @@ class StateMachineNode(Node):
 
         if self.mission is None:
             self.mission = Missions.FTG
+            self.publish_mission_mode(self.mission.name)
         else:
             self.mission = self.mission.previous()
+            self.publish_mission_mode(self.mission.name)
 
         self.get_logger().info(f"Mission: {self.mission.name}")
 
