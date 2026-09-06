@@ -1,4 +1,6 @@
 from setuptools import find_packages, setup
+import os
+from glob import glob
 
 package_name = "athena_lifecycle_state_machine"
 
@@ -9,6 +11,10 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
+        (
+            os.path.join("share", package_name, "launch"),
+            glob(os.path.join("launch", "*launch.[pxy][yma]*")),
+        ),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -23,7 +29,7 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "state_machine = athena_lifecycle_state_machine.state_machine_node:main"
+            "lifecycle_state_machine = athena_lifecycle_state_machine.state_machine_node:main"
         ],
     },
 )
